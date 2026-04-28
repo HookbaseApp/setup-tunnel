@@ -25727,11 +25727,24 @@ async function run() {
         core.setOutput('tunnel-url', tunnelUrl);
         core.exportVariable('HOOKBASE_TUNNEL_URL', tunnelUrl);
         core.info(`Tunnel ready: ${tunnelUrl}`);
-        child.unref();
+        detachFromChild(child);
     }
     catch (err) {
         core.setFailed(err instanceof Error ? err.message : String(err));
     }
+}
+function detachFromChild(child) {
+    // Without this, the parent's event loop stays alive forever because we're
+    // still piping stdout/stderr through readline / data listeners. We've got
+    // what we need from the child — let it run on its own until cleanup.ts
+    // SIGTERMs it during the post step.
+    child.removeAllListeners('exit');
+    child.removeAllListeners('error');
+    child.stdout?.removeAllListeners();
+    child.stderr?.removeAllListeners();
+    child.stdout?.destroy();
+    child.stderr?.destroy();
+    child.unref();
 }
 function waitForConnection(child, timeoutMs) {
     return new Promise((resolve, reject) => {

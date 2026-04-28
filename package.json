@@ -1,6 +1,6 @@
 {
   "name": "hookbase-setup-tunnel",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "private": true,
   "description": "GitHub Action that exposes a localhost port via a Hookbase tunnel for webhook integration testing in CI.",
   "scripts": {
