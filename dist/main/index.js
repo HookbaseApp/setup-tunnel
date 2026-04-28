@@ -25728,9 +25728,15 @@ async function run() {
         core.exportVariable('HOOKBASE_TUNNEL_URL', tunnelUrl);
         core.info(`Tunnel ready: ${tunnelUrl}`);
         detachFromChild(child);
+        // Hard exit — the detached CLI keeps running; cleanup.ts SIGTERMs it
+        // during the post step. Anything still holding our event loop open
+        // (libuv references on the spawned child, internal stream buffers,
+        // GITHUB_OUTPUT writes) would otherwise hang the action step.
+        process.exit(0);
     }
     catch (err) {
         core.setFailed(err instanceof Error ? err.message : String(err));
+        process.exit(1);
     }
 }
 function detachFromChild(child) {
