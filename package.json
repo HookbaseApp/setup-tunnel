@@ -1,0 +1,25 @@
+{
+  "name": "hookbase-setup-tunnel",
+  "version": "1.0.0",
+  "private": true,
+  "description": "GitHub Action that exposes a localhost port via a Hookbase tunnel for webhook integration testing in CI.",
+  "scripts": {
+    "build": "ncc build src/main.ts -o dist/main --source-map --license licenses.txt && ncc build src/cleanup.ts -o dist/cleanup --source-map --license licenses.txt",
+    "lint": "tsc --noEmit",
+    "all": "npm run lint && npm run build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hookbase/setup-tunnel.git"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@actions/core": "^1.11.1",
+    "@actions/exec": "^1.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.10",
+    "@vercel/ncc": "^0.38.1",
+    "typescript": "^5.5.3"
+  }
+}

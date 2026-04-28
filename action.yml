@@ -1,0 +1,34 @@
+name: 'Hookbase Setup Tunnel'
+description: 'Expose a localhost port via a Hookbase tunnel for webhook integration testing in CI.'
+author: 'Hookbase'
+branding:
+  icon: 'link'
+  color: 'purple'
+inputs:
+  port:
+    description: 'Local port to forward to the tunnel.'
+    required: true
+  api-key:
+    description: 'Hookbase API key (whr_...). Use a repository or organization secret.'
+    required: true
+  subdomain:
+    description: 'Optional custom subdomain for the tunnel (Pro plan).'
+    required: false
+  cli-version:
+    description: 'Version of @hookbase/cli to install. Defaults to latest.'
+    required: false
+    default: 'latest'
+  api-url:
+    description: 'Override the Hookbase API URL (defaults to https://api.hookbase.app).'
+    required: false
+  ready-timeout-ms:
+    description: 'Milliseconds to wait for the tunnel to become connected before failing.'
+    required: false
+    default: '30000'
+outputs:
+  tunnel-url:
+    description: 'Public URL of the tunnel. Also exported as the HOOKBASE_TUNNEL_URL environment variable.'
+runs:
+  using: 'node20'
+  main: 'dist/main/index.js'
+  post: 'dist/cleanup/index.js'

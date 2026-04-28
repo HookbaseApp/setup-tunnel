@@ -1,0 +1,74 @@
+name: Self-test
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build
+      - name: Verify dist/ is up to date
+        run: |
+          if [ -n "$(git status --porcelain dist/)" ]; then
+            echo "::error::dist/ is out of date. Run 'npm run build' and commit the result."
+            git diff dist/
+            exit 1
+          fi
+
+  e2e:
+    needs: build
+    runs-on: ubuntu-latest
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run build
+
+      - name: Start local echo server
+        run: |
+          cat > /tmp/echo.js <<'EOF'
+          const http = require('http');
+          const fs = require('fs');
+          http.createServer((req, res) => {
+            let body = '';
+            req.on('data', (c) => body += c);
+            req.on('end', () => {
+              fs.appendFileSync('/tmp/received.log', `${req.method} ${req.url} ${body}\n`);
+              res.writeHead(200, { 'content-type': 'application/json' });
+              res.end('{"ok":true}');
+            });
+          }).listen(3000, () => console.log('echo on 3000'));
+          EOF
+          node /tmp/echo.js &
+          sleep 1
+
+      - uses: ./
+        id: tunnel
+        with:
+          port: 3000
+          api-key: ${{ secrets.HOOKBASE_TEST_API_KEY }}
+
+      - name: POST to tunnel and assert local server received it
+        run: |
+          curl -fsS -X POST -d 'hello' "${{ steps.tunnel.outputs.tunnel-url }}/test"
+          sleep 2
+          if ! grep -q 'POST /test hello' /tmp/received.log; then
+            echo "::error::Local server did not receive the forwarded request"
+            cat /tmp/received.log || true
+            exit 1
+          fi
+          echo "Local server received forwarded request."
