@@ -27,9 +27,10 @@ jobs:
           fi
 
   e2e:
+    name: e2e — golden path
     needs: build
     runs-on: ubuntu-latest
-    if: ${{ github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push' }}
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -73,3 +74,140 @@ jobs:
             exit 1
           fi
           echo "Local server received forwarded request."
+
+  e2e-invalid-key:
+    name: e2e — rejects invalid api key
+    needs: build
+    runs-on: ubuntu-latest
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run build
+
+      - name: Run action with bad key (must fail)
+        id: tunnel
+        continue-on-error: true
+        uses: ./
+        with:
+          port: 3000
+          api-key: whr_invalid_key_for_testing_0000000000000000
+
+      - name: Assert the action step failed
+        run: |
+          if [ "${{ steps.tunnel.outcome }}" != "failure" ]; then
+            echo "::error::Action should have failed with invalid api-key but outcome was ${{ steps.tunnel.outcome }}"
+            exit 1
+          fi
+          echo "Confirmed: action failed as expected."
+
+  e2e-concurrent:
+    name: e2e — concurrent requests
+    needs: build
+    runs-on: ubuntu-latest
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run build
+
+      - name: Start counting echo server
+        run: |
+          cat > /tmp/count_echo.js <<'EOF'
+          const http = require('http');
+          const fs = require('fs');
+          http.createServer((req, res) => {
+            let body = '';
+            req.on('data', (c) => body += c);
+            req.on('end', () => {
+              fs.appendFileSync('/tmp/received.log', body + '\n');
+              res.writeHead(200);
+              res.end('ok');
+            });
+          }).listen(3000, () => console.log('count echo on 3000'));
+          EOF
+          node /tmp/count_echo.js &
+          sleep 1
+
+      - uses: ./
+        id: tunnel
+        with:
+          port: 3000
+          api-key: ${{ secrets.HOOKBASE_TEST_API_KEY }}
+
+      - name: Fire 10 concurrent POSTs and assert all delivered
+        run: |
+          set -e
+          URL="${{ steps.tunnel.outputs.tunnel-url }}"
+          for i in $(seq 1 10); do
+            curl -fsS -X POST -d "msg-$i" "$URL/concurrent" >/dev/null &
+          done
+          wait
+          sleep 4
+          got=$(wc -l < /tmp/received.log)
+          if [ "$got" -lt 10 ]; then
+            echo "::error::Expected 10 forwarded requests, got $got"
+            cat /tmp/received.log
+            exit 1
+          fi
+          for i in $(seq 1 10); do
+            if ! grep -q "^msg-$i$" /tmp/received.log; then
+              echo "::error::Missing payload msg-$i"
+              cat /tmp/received.log
+              exit 1
+            fi
+          done
+          echo "All 10 concurrent payloads delivered."
+
+  e2e-subdomain:
+    name: e2e — custom subdomain (Pro plan only, allowed to fail)
+    needs: build
+    runs-on: ubuntu-latest
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run build
+
+      - name: Start echo server
+        run: |
+          cat > /tmp/echo.js <<'EOF'
+          const http = require('http');
+          http.createServer((_, res) => res.end('ok')).listen(3000);
+          EOF
+          node /tmp/echo.js &
+          sleep 1
+
+      - name: Pick a random subdomain
+        id: rand
+        run: echo "subdomain=ci-test-$(date +%s)-$RANDOM" >> "$GITHUB_OUTPUT"
+
+      - uses: ./
+        id: tunnel
+        with:
+          port: 3000
+          api-key: ${{ secrets.HOOKBASE_TEST_API_KEY }}
+          subdomain: ${{ steps.rand.outputs.subdomain }}
+
+      - name: Assert the tunnel URL contains the requested subdomain
+        run: |
+          URL="${{ steps.tunnel.outputs.tunnel-url }}"
+          SUB="${{ steps.rand.outputs.subdomain }}"
+          if ! echo "$URL" | grep -q "$SUB"; then
+            echo "::error::Tunnel URL '$URL' does not contain subdomain '$SUB'"
+            exit 1
+          fi
+          echo "Tunnel URL correctly uses requested subdomain."
