@@ -149,8 +149,9 @@ jobs:
           mkdir -p /tmp/responses
           for i in $(seq 1 10); do
             (
-              http_status=$(curl -sS -o "/tmp/responses/body-$i.txt" -w "%{http_code}" -X POST -d "msg-$i" "$URL/concurrent")
-              echo "$i status=$http_status" > "/tmp/responses/meta-$i.txt"
+              http_status=$(curl -sS -D "/tmp/responses/headers-$i.txt" -o "/tmp/responses/body-$i.txt" -w "%{http_code}" -X POST -d "msg-$i" "$URL/concurrent")
+              instance=$(grep -i '^x-tunnel-do-instance:' "/tmp/responses/headers-$i.txt" | tr -d '\r' | awk '{print $2}')
+              echo "$i status=$http_status instance=${instance:-none}" > "/tmp/responses/meta-$i.txt"
             ) &
           done
           wait
