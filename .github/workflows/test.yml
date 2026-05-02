@@ -159,7 +159,7 @@ jobs:
           echo "===== PER-REQUEST RESULTS ====="
           for i in $(seq 1 10); do
             meta=$(cat "/tmp/responses/meta-$i.txt")
-            body=$(head -c 200 "/tmp/responses/body-$i.txt" || echo "")
+            body=$(head -c 800 "/tmp/responses/body-$i.txt" || echo "")
             echo "$meta body=$body"
           done
 
