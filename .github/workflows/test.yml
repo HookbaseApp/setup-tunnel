@@ -143,48 +143,25 @@ jobs:
           port: 3000
           api-key: ${{ secrets.HOOKBASE_TEST_API_KEY }}
 
-      - name: Verify CLI process is still alive before firing requests
+      - name: Fire 10 concurrent POSTs and assert all delivered
         run: |
-          echo "===== HOOKBASE PROCESSES ====="
-          ps -ef | grep -i hookbase || echo "no hookbase processes"
-          echo "===== NODE PROCESSES ====="
-          ps -ef | grep node | grep -v grep || true
-          echo "===== TCP CONNECTIONS TO HOOKBASE ====="
-          ss -tnp 2>/dev/null | grep -i hookbase || echo "no tunnel TCP connection found"
-
-      - name: Fire 10 concurrent POSTs and capture per-request status + body
-        run: |
+          set -e
           URL="${{ steps.tunnel.outputs.tunnel-url }}"
-          mkdir -p /tmp/responses
           for i in $(seq 1 10); do
-            (
-              http_status=$(curl -sS -D "/tmp/responses/headers-$i.txt" -o "/tmp/responses/body-$i.txt" -w "%{http_code}" -X POST -d "msg-$i" "$URL/concurrent")
-              instance=$(grep -i '^x-tunnel-do-instance:' "/tmp/responses/headers-$i.txt" | tr -d '\r' | awk '{print $2}')
-              echo "$i status=$http_status instance=${instance:-none}" > "/tmp/responses/meta-$i.txt"
-            ) &
+            curl -fsS -X POST -d "msg-$i" "$URL/concurrent" >/dev/null &
           done
           wait
           sleep 4
-
-          echo "===== PER-REQUEST RESULTS ====="
-          for i in $(seq 1 10); do
-            meta=$(cat "/tmp/responses/meta-$i.txt")
-            body=$(head -c 800 "/tmp/responses/body-$i.txt" || echo "")
-            echo "$meta body=$body"
-          done
-
-          echo "===== LOCAL ECHO LOG ====="
-          cat /tmp/received.log || echo "(empty)"
-
           got=$(wc -l < /tmp/received.log)
-          echo "Local server received $got of 10 requests."
           if [ "$got" -lt 10 ]; then
             echo "::error::Expected 10 forwarded requests, got $got"
+            cat /tmp/received.log
             exit 1
           fi
           for i in $(seq 1 10); do
             if ! grep -q "^msg-$i$" /tmp/received.log; then
               echo "::error::Missing payload msg-$i"
+              cat /tmp/received.log
               exit 1
             fi
           done
