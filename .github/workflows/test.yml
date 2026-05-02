@@ -143,25 +143,38 @@ jobs:
           port: 3000
           api-key: ${{ secrets.HOOKBASE_TEST_API_KEY }}
 
-      - name: Fire 10 concurrent POSTs and assert all delivered
+      - name: Fire 10 concurrent POSTs and capture per-request status + body
         run: |
-          set -e
           URL="${{ steps.tunnel.outputs.tunnel-url }}"
+          mkdir -p /tmp/responses
           for i in $(seq 1 10); do
-            curl -fsS -X POST -d "msg-$i" "$URL/concurrent" >/dev/null &
+            (
+              http_status=$(curl -sS -o "/tmp/responses/body-$i.txt" -w "%{http_code}" -X POST -d "msg-$i" "$URL/concurrent")
+              echo "$i status=$http_status" > "/tmp/responses/meta-$i.txt"
+            ) &
           done
           wait
           sleep 4
+
+          echo "===== PER-REQUEST RESULTS ====="
+          for i in $(seq 1 10); do
+            meta=$(cat "/tmp/responses/meta-$i.txt")
+            body=$(head -c 200 "/tmp/responses/body-$i.txt" || echo "")
+            echo "$meta body=$body"
+          done
+
+          echo "===== LOCAL ECHO LOG ====="
+          cat /tmp/received.log || echo "(empty)"
+
           got=$(wc -l < /tmp/received.log)
+          echo "Local server received $got of 10 requests."
           if [ "$got" -lt 10 ]; then
             echo "::error::Expected 10 forwarded requests, got $got"
-            cat /tmp/received.log
             exit 1
           fi
           for i in $(seq 1 10); do
             if ! grep -q "^msg-$i$" /tmp/received.log; then
               echo "::error::Missing payload msg-$i"
-              cat /tmp/received.log
               exit 1
             fi
           done
