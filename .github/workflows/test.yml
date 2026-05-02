@@ -143,6 +143,15 @@ jobs:
           port: 3000
           api-key: ${{ secrets.HOOKBASE_TEST_API_KEY }}
 
+      - name: Verify CLI process is still alive before firing requests
+        run: |
+          echo "===== HOOKBASE PROCESSES ====="
+          ps -ef | grep -i hookbase || echo "no hookbase processes"
+          echo "===== NODE PROCESSES ====="
+          ps -ef | grep node | grep -v grep || true
+          echo "===== TCP CONNECTIONS TO HOOKBASE ====="
+          ss -tnp 2>/dev/null | grep -i hookbase || echo "no tunnel TCP connection found"
+
       - name: Fire 10 concurrent POSTs and capture per-request status + body
         run: |
           URL="${{ steps.tunnel.outputs.tunnel-url }}"
